@@ -1,0 +1,46 @@
+name: release
+
+# Builds golden-run for Apple Silicon, ad-hoc signs it with the virtualization
+# entitlement, and attaches it to a GitHub release with a build provenance
+# attestation. Not notarized: install with curl, which sets no quarantine flag.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+jobs:
+  release:
+    runs-on: macos-26
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: sudo xcode-select --switch /Applications/Xcode_26.6.app
+
+      - name: Build and sign
+        run: |
+          make release
+          mkdir -p dist
+          cp "$(swift build -c release --show-bin-path)/golden-run" dist/golden-run
+
+      - name: Verify signature and entitlement
+        run: |
+          codesign --verify --strict dist/golden-run
+          codesign -d --entitlements - dist/golden-run 2>&1 | grep -q com.apple.security.virtualization
+          lipo -archs dist/golden-run | grep -qx arm64
+          dist/golden-run --help
+
+      - name: Checksum
+        working-directory: dist
+        run: shasum -a 256 golden-run > golden-run.sha256
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/golden-run
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/golden-run dist/golden-run.sha256 --generate-notes --verify-tag
