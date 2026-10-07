@@ -35,8 +35,10 @@ Get the digest with `docker buildx imagetools inspect ghcr.io/albert221/golden-e
 **2. Tag your golden tests**, so they can run in the image while the rest of the suite stays native:
 
 ```dart
-@Tags(['golden'])
-library;
+testWidgets('profile card', tags: ['golden'], (tester) async {
+  await tester.pumpWidget(const ProfileCard());
+  await expectLater(find.byType(ProfileCard), matchesGoldenFile('goldens/profile_card.png'));
+});
 ```
 
 and declare the tag in `dart_test.yaml`:
