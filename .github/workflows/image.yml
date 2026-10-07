@@ -24,6 +24,8 @@ jobs:
     needs: versions
     runs-on: ubuntu-24.04
     strategy:
+      # One version failing to build must not cancel the others.
+      fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.versions.outputs.matrix) }}
     permissions:
