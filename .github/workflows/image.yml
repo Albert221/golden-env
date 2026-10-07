@@ -1,0 +1,79 @@
+name: image
+
+# Builds golden-env for every Flutter version in golden-env/versions and pushes it
+# to ghcr.io/<owner>/golden-env:<version>. Native x86-64, no emulation.
+on:
+  push:
+    branches: [main]
+    paths: [golden-env/**, .github/workflows/image.yml]
+  workflow_dispatch:
+
+jobs:
+  versions:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          matrix=$(awk '!/^#/ && NF { printf "%s{\"version\":\"%s\",\"commit\":\"%s\"}", sep, $1, $2; sep="," }' golden-env/versions)
+          echo "matrix=[$matrix]" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: versions
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.versions.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/golden-env" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: golden-env
+          platforms: linux/amd64
+          # One plain manifest: no attestation manifests for clients to skip.
+          provenance: false
+          sbom: false
+          build-args: |
+            FLUTTER_VERSION=${{ matrix.version }}
+            FLUTTER_COMMIT=${{ matrix.commit }}
+          tags: ${{ steps.name.outputs.image }}:${{ matrix.version }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.version }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.version }}
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        env:
+          LOCK: image=${{ steps.name.outputs.image }}:${{ matrix.version }}@${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "### Flutter ${{ matrix.version }}"
+            echo '```ini'
+            echo "$LOCK"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
