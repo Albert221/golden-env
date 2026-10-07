@@ -61,11 +61,12 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.version }}
           cache-to: type=gha,mode=max,scope=${{ matrix.version }}
 
+      # Stored in GitHub's attestation store only: pushing it to the registry adds a
+      # sha256-<digest> tag and an untagged version to the package on every build.
       - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.name.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
 
       - name: Summary
         env:
