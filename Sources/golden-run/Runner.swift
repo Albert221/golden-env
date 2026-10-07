@@ -121,12 +121,19 @@ struct Runner {
     }
 
     private static func rootfs(for image: Containerization.Image) async throws -> Containerization.Mount {
-        let digest = image.digest.replacingOccurrences(of: ":", with: "-")
-        let path = Paths.store.appendingPathComponent("rootfs").appendingPathComponent("\(digest).ext4")
+        // Keyed by the config digest, which identifies the filesystem: the same layers
+        // loaded or pulled under another name or index must not unpack again.
+        let config = try await image.manifest(for: platform).config.digest
+        let directory = Paths.store.appendingPathComponent("rootfs")
+        let path = directory.appendingPathComponent("\(config.replacingOccurrences(of: ":", with: "-")).ext4")
         if !FileManager.default.fileExists(atPath: path.path) {
-            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-            log("Unpacking \(image.reference) into an ext4 rootfs (once per digest)...")
-            _ = try await EXT4Unpacker(capacityInBytes: 16.gib()).unpack(image, for: platform, at: path)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            log("Unpacking \(image.reference) into an ext4 rootfs (once per image)...")
+            // Unpack beside the final name and rename, so an interrupted unpack is never reused.
+            let partial = directory.appendingPathComponent("\(UUID().uuidString).partial")
+            defer { try? FileManager.default.removeItem(at: partial) }
+            _ = try await EXT4Unpacker(capacityInBytes: 16.gib()).unpack(image, for: platform, at: partial)
+            try FileManager.default.moveItem(at: partial, to: path)
         }
         return .block(format: "ext4", source: path.path, destination: "/", options: ["ro"])
     }
