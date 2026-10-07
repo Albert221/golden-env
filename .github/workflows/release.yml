@@ -15,7 +15,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - run: sudo xcode-select --switch /Applications/Xcode_26.6.app
 
@@ -36,7 +36,7 @@ jobs:
         working-directory: dist
         run: shasum -a 256 golden-run > golden-run.sha256
 
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/golden-run
 

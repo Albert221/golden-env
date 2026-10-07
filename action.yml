@@ -89,7 +89,7 @@ runs:
         echo "::endgroup::"
 
     - name: Cache pub packages
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.resolve.outputs.pub-cache }}
         key: golden-env-pub-${{ steps.resolve.outputs.image }}-${{ hashFiles(format('{0}/pubspec.lock', inputs.working-directory)) }}
@@ -128,7 +128,7 @@ runs:
 
     - name: Upload golden failures
       if: failure() && inputs.upload-failures == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: golden-failures
         path: ${{ inputs.working-directory }}/**/failures/**

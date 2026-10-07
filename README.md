@@ -109,7 +109,7 @@ jobs:
   goldens:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: albert221/golden-env@v1
 ```
 
