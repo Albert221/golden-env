@@ -122,6 +122,7 @@ The action reads `golden-env.lock`, caches pub packages, runs your tagged golden
 | `working-directory` | `.` | Flutter package to test, relative to the repository root |
 | `image` | from `golden-env.lock` | Image reference |
 | `tags` | `golden` | Tags to select; empty runs every test |
+| `reporter` | `github` | `flutter test` reporter; `github` groups the output and annotates failures |
 | `args` | | Extra `flutter test` arguments, e.g. a test path |
 | `update-goldens` | `false` | Regenerate instead of comparing |
 | `upload-failures` | `true` | Upload failure images when tests fail |

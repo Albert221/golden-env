@@ -15,6 +15,9 @@ inputs:
   tags:
     description: Test tags to select (`flutter test --tags`). Empty runs every test.
     default: golden
+  reporter:
+    description: '`flutter test` reporter: github (grouped output and error annotations), expanded, compact, failures-only, json.'
+    default: github
   args:
     description: Extra arguments for `flutter test`, e.g. a test path or `--name`.
     default: ''
@@ -109,11 +112,13 @@ runs:
         WORKDIR: ${{ steps.resolve.outputs.workdir }}
         PUB_CACHE_DIR: ${{ steps.resolve.outputs.pub-cache }}
         TAGS: ${{ inputs.tags }}
+        REPORTER: ${{ inputs.reporter }}
         ARGS: ${{ inputs.args }}
         UPDATE_GOLDENS: ${{ inputs.update-goldens }}
       run: |
         mkdir -p "$PUB_CACHE_DIR"
         set -- flutter test
+        [ -n "$REPORTER" ] && set -- "$@" --reporter "$REPORTER"
         [ -n "$TAGS" ] && set -- "$@" --tags "$TAGS"
         [ "$UPDATE_GOLDENS" = true ] && set -- "$@" --update-goldens
         # Word-split on purpose: ARGS is a list like "test/foo_test.dart --name bar".
