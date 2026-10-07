@@ -10,25 +10,33 @@ struct Project {
     let root: URL
     /// The directory holding pubspec.yaml; tests run here.
     let package: URL
+    /// The pub workspace root (`workspace:` in its pubspec) when the package belongs to one.
+    /// `pub get` writes the workspace's package_config.json there, not in the package.
+    let workspace: URL?
 
-    var guestPackageDirectory: String {
-        let relative = package.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return relative.isEmpty ? Self.guestRoot : "\(Self.guestRoot)/\(relative)"
-    }
+    var guestPackageDirectory: String { guestPath(of: package) }
 
-    /// Per-package home for `.dart_tool`, so the container's package_config.json (which
-    /// points into /opt/pub-cache) never replaces the host's and breaks the IDE.
-    var dartToolCache: URL {
-        let digest = SHA256.hash(data: Data(package.path.utf8)).map { String(format: "%02x", $0) }.joined()
-        return Paths.root.appendingPathComponent("dart-tool").appendingPathComponent(String(digest.prefix(16)))
+    /// Every `.dart_tool` a run writes package_config.json into. Each one is redirected to
+    /// a per-directory home in the state dir: the container's copy points into
+    /// /opt/pub-cache and would break the analyzer, formatter and IDE on the host.
+    var dartToolDirectories: [URL] {
+        guard let workspace, workspace.path != package.path else { return [package] }
+        return [workspace, package]
     }
 
     var shares: [(host: URL, guest: String)] {
-        [
-            (root, Self.guestRoot),
-            (Paths.pubCache, "/opt/pub-cache"),
-            (dartToolCache, "\(guestPackageDirectory)/.dart_tool"),
-        ]
+        [(root, Self.guestRoot), (Paths.pubCache, "/opt/pub-cache")]
+            + dartToolDirectories.map { (Self.dartToolCache(for: $0), "\(guestPath(of: $0))/.dart_tool") }
+    }
+
+    private func guestPath(of directory: URL) -> String {
+        let relative = directory.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative.isEmpty ? Self.guestRoot : "\(Self.guestRoot)/\(relative)"
+    }
+
+    private static func dartToolCache(for directory: URL) -> URL {
+        let digest = SHA256.hash(data: Data(directory.path.utf8)).map { String(format: "%02x", $0) }.joined()
+        return Paths.root.appendingPathComponent("dart-tool").appendingPathComponent(String(digest.prefix(16)))
     }
 
     static func locate(from start: URL) throws -> Project {
@@ -37,13 +45,33 @@ struct Project {
             throw GoldenRunError("no pubspec.yaml in \(start.path) or any parent directory")
         }
         let root = ancestor(of: package, containing: ".git") ?? package
-        return Project(root: root, package: package)
+        return Project(root: root, package: package, workspace: workspaceRoot(of: package, within: root))
     }
 
     /// Host directories every share needs before the VM can mount them.
     func prepareShares() throws {
-        for directory in [Paths.pubCache, dartToolCache, package.appendingPathComponent(".dart_tool")] {
+        var directories = [Paths.pubCache]
+        for directory in dartToolDirectories {
+            directories += [Self.dartToolCache(for: directory), directory.appendingPathComponent(".dart_tool")]
+        }
+        for directory in directories {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+    }
+
+    /// The nearest pubspec.yaml at or above the package, inside the shared root, that
+    /// declares a top-level `workspace:` list.
+    private static func workspaceRoot(of package: URL, within root: URL) -> URL? {
+        var directory = package
+        while true {
+            let pubspec = directory.appendingPathComponent("pubspec.yaml")
+            if let contents = try? String(contentsOf: pubspec, encoding: .utf8),
+                contents.split(whereSeparator: \.isNewline).contains(where: { $0.hasPrefix("workspace:") })
+            {
+                return directory
+            }
+            if directory.path == root.path { return nil }
+            directory = directory.deletingLastPathComponent()
         }
     }
 
