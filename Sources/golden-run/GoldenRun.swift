@@ -6,7 +6,7 @@ struct GoldenRun: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "golden-run",
         abstract: "Run Flutter golden tests inside a pinned linux/amd64 image.",
-        subcommands: [Test.self, Doctor.self, Pull.self, Shell.self, Exec.self],
+        subcommands: [Test.self, Doctor.self, Pull.self, Load.self, Shell.self, Exec.self],
         defaultSubcommand: Test.self
     )
 }
@@ -65,6 +65,24 @@ extension GoldenRun {
             let store = try Store()
             try await store.ensureKernel()
             try await store.ensureInitfs()
+        }
+    }
+
+    /// Imports a locally built image without a registry round trip.
+    struct Load: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Load an image from an OCI layout directory (docker buildx --output type=oci,tar=false)."
+        )
+
+        @Argument(help: "Path to the OCI layout directory.", completion: .directory)
+        var directory: String
+
+        func run() async throws {
+            let store = try Store()
+            let images = try await store.images.load(from: URL(fileURLWithPath: directory))
+            for image in images {
+                print("\(image.reference) \(image.digest)")
+            }
         }
     }
 
