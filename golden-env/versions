@@ -1,3 +1,4 @@
 # Flutter versions published as ghcr.io/albert221/golden-env:<version>.
 # <version> <framework commit>; the commit is checked against the cloned tag.
+3.47.3 e8113bf45620cbeb8aff64947ee4c93e16adb4cf
 3.47.6 5fc346839b5d0eef006ed8404392afb4dfae428d
