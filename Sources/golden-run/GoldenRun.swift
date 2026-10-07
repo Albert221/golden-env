@@ -46,10 +46,13 @@ extension GoldenRun {
         )
 
         func run() async throws {
+            let store = try Store()
             let os = ProcessInfo.processInfo.operatingSystemVersion
             print("macOS        \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")
+            print("rosetta      \(Rosetta.isInstalled ? "installed" : "MISSING (softwareupdate --install-rosetta --agree-to-license)")")
             print("state dir    \(Paths.root.path)")
-            print("vminit       \(Pins.vminitReference)")
+            print("kernel       \(store.hasKernel ? Paths.kernel.lastPathComponent : "not fetched")")
+            print("vminit       \(Pins.vminitReference) (\(store.hasInitfs ? "ready" : "not fetched"))")
         }
     }
 
@@ -59,7 +62,9 @@ extension GoldenRun {
         )
 
         func run() async throws {
-            throw NotImplemented(what: "pull")
+            let store = try Store()
+            try await store.ensureKernel()
+            try await store.ensureInitfs()
         }
     }
 
