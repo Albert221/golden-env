@@ -50,6 +50,13 @@ RUN umask 0000 && cd /tmp && flutter create --project-name warmup warmup >/dev/n
  && flutter --version --machine > /etc/golden-env/flutter.json \
  && chmod -R a+rwX "$HOME"
 
+# C toolchain for native-asset build hooks (e.g. forge2d). package:native_toolchain_c
+# prefers ld.lld and llvm-ar but falls back to the GNU ld and ar that clang brings in,
+# so clang alone is enough. Its own layer after the SDK, so adding it left every layer
+# above unchanged and an image update downloads only this one.
+RUN apt-get update && apt-get install -y --no-install-recommends clang \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/golden-entry.sh"]
 CMD ["flutter", "test", "--tags", "golden"]
