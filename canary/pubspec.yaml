@@ -1,0 +1,17 @@
+name: canary
+description: Golden canaries that exercise every rasterization path golden-run must keep bit-exact.
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
