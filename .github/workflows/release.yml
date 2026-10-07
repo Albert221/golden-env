@@ -19,6 +19,13 @@ jobs:
 
       - run: sudo xcode-select --switch /Applications/Xcode_26.6.app
 
+      # Saved by the build workflow on main; only dependencies are reused, since
+      # golden-run's own sources are newer than the cached objects after checkout.
+      - uses: actions/cache/restore@v6
+        with:
+          path: .build
+          key: swiftpm-release-${{ runner.arch }}-xcode26.6-${{ hashFiles('Package.resolved') }}
+
       - name: Build and sign
         run: |
           make release

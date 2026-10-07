@@ -1,0 +1,44 @@
+name: build
+
+# Builds golden-run on every change to it and keeps the SwiftPM build cache warm.
+# Caches are scoped to the ref that saved them and tags can only read main's, so
+# this is what lets the release workflow skip compiling the dependencies.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Sources/**
+      - Package.swift
+      - Package.resolved
+      - Makefile
+      - golden-run.entitlements
+      - .github/workflows/build.yml
+  pull_request:
+    paths:
+      - Sources/**
+      - Package.swift
+      - Package.resolved
+      - Makefile
+      - golden-run.entitlements
+      - .github/workflows/build.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: sudo xcode-select --switch /Applications/Xcode_26.6.app
+
+      - uses: actions/cache@v6
+        with:
+          path: .build
+          key: swiftpm-release-${{ runner.arch }}-xcode26.6-${{ hashFiles('Package.resolved') }}
+
+      - run: make release
+
+      - run: |
+          bin="$(swift build -c release --show-bin-path)/golden-run"
+          codesign -d --entitlements - "$bin" 2>&1 | grep -q com.apple.security.virtualization
+          "$bin" --help
