@@ -14,9 +14,13 @@ struct Runner {
     static let platform = Platform(arch: "amd64", os: "linux")
 
     var imageReference: String
-    var arguments: [String] = []
+    /// Replaces the image's CMD; its ENTRYPOINT still runs first, as with `docker run`.
+    var command: [String] = []
     var workingDirectory: String?
+    /// Mounted in order, so a share may sit inside an earlier one.
     var shares: [(host: URL, guest: String)] = []
+    /// Defaults to the host user, so files written into shares stay the developer's.
+    var user = ContainerizationOCI.User(uid: getuid(), gid: getgid())
     var networking = true
     var cpus = 4
     var memoryInBytes: UInt64 = 4.gib()
@@ -55,12 +59,13 @@ struct Runner {
             if let imageConfig {
                 config.process = .init(from: imageConfig)
             }
-            if !arguments.isEmpty {
-                config.process.arguments = arguments
+            if !command.isEmpty {
+                config.process.arguments = (imageConfig?.entrypoint ?? []) + command
             }
             if let workingDirectory {
                 config.process.workingDirectory = workingDirectory
             }
+            config.process.user = user
             if let terminal {
                 config.process.setTerminalIO(terminal: terminal)
             } else {

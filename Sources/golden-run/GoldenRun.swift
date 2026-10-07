@@ -11,32 +11,32 @@ struct GoldenRun: AsyncParsableCommand {
     )
 }
 
-struct NotImplemented: Error, CustomStringConvertible {
-    let what: String
-    var description: String { "\(what) is not implemented yet" }
-}
-
 extension GoldenRun {
     struct Test: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Run `flutter test --tags golden` in the image (the default)."
+            abstract: "Run `flutter test --tags golden` in the image (the default).",
+            discussion: """
+                Arguments after the options go to `flutter test`, e.g.
+                `golden-run --update-goldens` or `golden-run test/widgets/foo_test.dart`.
+                """
         )
 
-        @Flag(help: "Disable networking in the VM.")
-        var offline = false
+        @OptionGroup var vm: VMOptions
 
-        @Option(help: "Number of CPUs for the VM.")
-        var cpus = 4
+        @Flag(help: "Run every test, not only those tagged `golden`.")
+        var allTests = false
 
-        @Option(help: "Memory for the VM in MiB.")
-        var memory: UInt64 = 4096
-
-        /// Passed through to `flutter test`, e.g. `--update-goldens` or a test path.
         @Argument(parsing: .captureForPassthrough)
         var passthrough: [String] = []
 
         func run() async throws {
-            throw NotImplemented(what: "test")
+            var command = ["flutter", "test"]
+            let flutterArguments = passthrough.first == "--" ? Array(passthrough.dropFirst()) : passthrough
+            let selectsTags = flutterArguments.contains { $0 == "--tags" || $0 == "-t" || $0.hasPrefix("--tags=") }
+            if !allTests && !selectsTags {
+                command += ["--tags", "golden"]
+            }
+            try await vm.runInProject(command: command + flutterArguments)
         }
     }
 
@@ -89,7 +89,7 @@ extension GoldenRun {
     /// Runs an arbitrary command in any amd64 image. For debugging the VM path itself.
     struct Exec: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Run a command in an arbitrary linux/amd64 image.",
+            abstract: "Run a command in an arbitrary linux/amd64 image, with the current directory at /work.",
             shouldDisplay: false
         )
 
@@ -103,23 +103,64 @@ extension GoldenRun {
         var command: [String] = []
 
         func run() async throws {
-            // captureForPassthrough keeps the `--` separator; it is not part of the command.
             let command = command.first == "--" ? Array(command.dropFirst()) : command
-            let runner = Runner(imageReference: image, arguments: command, networking: !offline)
-            let code = try await runner.run()
-            if code != 0 {
-                throw ExitCode(code)
-            }
+            let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            let runner = Runner(
+                imageReference: image,
+                command: command,
+                workingDirectory: Project.guestRoot,
+                shares: [(cwd, Project.guestRoot)],
+                networking: !offline
+            )
+            try exitWithContainerStatus(await runner.run())
         }
     }
 
     struct Shell: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Open a shell in the image for debugging."
+            abstract: "Open a shell in the image, in the package directory."
         )
 
+        @OptionGroup var vm: VMOptions
+
         func run() async throws {
-            throw NotImplemented(what: "shell")
+            try await vm.runInProject(command: ["bash"])
         }
+    }
+}
+
+/// Options shared by every command that runs in the project's image.
+struct VMOptions: ParsableArguments {
+    @Option(help: "Image reference; defaults to image= in golden-env.lock.")
+    var image: String?
+
+    @Flag(help: "Disable networking in the VM (pub get must already be satisfied).")
+    var offline = false
+
+    @Option(help: "Number of CPUs for the VM.")
+    var cpus = 4
+
+    @Option(help: "Memory for the VM in MiB.")
+    var memory: UInt64 = 4096
+
+    func runInProject(command: [String]) async throws {
+        let project = try Project.locate(from: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
+        try project.prepareShares()
+        let runner = Runner(
+            imageReference: try image ?? project.lockedImage(),
+            command: command,
+            workingDirectory: project.guestPackageDirectory,
+            shares: project.shares,
+            networking: !offline,
+            cpus: cpus,
+            memoryInBytes: memory.mib()
+        )
+        try exitWithContainerStatus(await runner.run())
+    }
+}
+
+private func exitWithContainerStatus(_ code: Int32) throws {
+    if code != 0 {
+        throw ExitCode(code)
     }
 }
