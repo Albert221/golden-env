@@ -109,7 +109,9 @@ struct Runner {
             ref = try Reference.parse("docker.io/\(reference)")
         }
         ref.normalize()
-        let normalized = ref.description
+        // `name:tag@digest` (the lockfile form) must resolve by digest; the tag is only
+        // for humans. Reference.description and pull would both prefer the tag.
+        let normalized = ref.digest.map { "\(ref.name)@\($0)" } ?? ref.description
         do {
             return try await images.get(reference: normalized)
         } catch let error as ContainerizationError where error.code == .notFound {
