@@ -1,0 +1,135 @@
+name: golden-env
+description: Run Flutter golden tests in the pinned golden-env image, bit-exact with golden-run on macOS.
+author: albert221
+branding:
+  icon: image
+  color: yellow
+
+inputs:
+  working-directory:
+    description: Flutter package to test, relative to the repository root.
+    default: .
+  image:
+    description: Image reference. Defaults to `image=` in the nearest golden-env.lock.
+    default: ''
+  tags:
+    description: Test tags to select (`flutter test --tags`). Empty runs every test.
+    default: golden
+  args:
+    description: Extra arguments for `flutter test`, e.g. a test path or `--name`.
+    default: ''
+  update-goldens:
+    description: Regenerate goldens instead of comparing (`--update-goldens`).
+    default: 'false'
+  upload-failures:
+    description: Upload golden failure images as an artifact when tests fail.
+    default: 'true'
+
+outputs:
+  image:
+    description: The image reference the tests ran in.
+    value: ${{ steps.resolve.outputs.image }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve image and package
+      id: resolve
+      shell: bash
+      env:
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        IMAGE: ${{ inputs.image }}
+      run: |
+        # Bit-exactness needs an x86-64 CPU running the amd64 image natively. An ARM
+        # runner would emulate it with QEMU and take different SIMD paths.
+        if [ "$RUNNER_OS" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
+          echo "::error::golden-env needs an x86-64 Linux runner such as ubuntu-24.04 (got $RUNNER_OS/$(uname -m))."
+          exit 1
+        fi
+
+        root=$(cd "$GITHUB_WORKSPACE" && pwd -P)
+        package=$(cd "$WORKING_DIRECTORY" && pwd -P)
+        case "$package/" in
+          "$root"/*) ;;
+          *) echo "::error::working-directory must be inside the checked-out repository."; exit 1 ;;
+        esac
+        if [ ! -f "$package/pubspec.yaml" ]; then
+          echo "::error::No pubspec.yaml in $WORKING_DIRECTORY."
+          exit 1
+        fi
+
+        if [ -z "$IMAGE" ]; then
+          dir=$package
+          while :; do
+            if [ -f "$dir/golden-env.lock" ]; then
+              IMAGE=$(sed -n 's/^[[:space:]]*image[[:space:]]*=[[:space:]]*//p' "$dir/golden-env.lock" | head -n 1)
+              break
+            fi
+            [ "$dir" = "$root" ] && break
+            dir=$(dirname "$dir")
+          done
+        fi
+        if [ -z "$IMAGE" ]; then
+          echo "::error::No image: add golden-env.lock with image=<reference> or set the image input."
+          exit 1
+        fi
+
+        {
+          echo "image=$IMAGE"
+          echo "root=$root"
+          echo "workdir=/work${package#"$root"}"
+          echo "pub-cache=$RUNNER_TEMP/golden-env-pub"
+        } >> "$GITHUB_OUTPUT"
+
+        # AVX-512 is the one CPU difference that can change Skia's code path relative
+        # to a Mac under Rosetta, which exposes AVX2 only. Logged for diagnosis.
+        echo "::group::CPU"
+        grep -m1 'model name' /proc/cpuinfo
+        echo "flags: $(grep -m1 -ow -E 'avx2|avx512f' /proc/cpuinfo | sort -u | tr '\n' ' ')"
+        echo "::endgroup::"
+
+    - name: Cache pub packages
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.resolve.outputs.pub-cache }}
+        key: golden-env-pub-${{ steps.resolve.outputs.image }}-${{ hashFiles(format('{0}/pubspec.lock', inputs.working-directory)) }}
+        restore-keys: golden-env-pub-${{ steps.resolve.outputs.image }}-
+
+    - name: Pull image
+      shell: bash
+      env:
+        IMAGE: ${{ steps.resolve.outputs.image }}
+      run: docker pull --quiet --platform linux/amd64 "$IMAGE"
+
+    - name: Run golden tests
+      shell: bash
+      env:
+        IMAGE: ${{ steps.resolve.outputs.image }}
+        ROOT: ${{ steps.resolve.outputs.root }}
+        WORKDIR: ${{ steps.resolve.outputs.workdir }}
+        PUB_CACHE_DIR: ${{ steps.resolve.outputs.pub-cache }}
+        TAGS: ${{ inputs.tags }}
+        ARGS: ${{ inputs.args }}
+        UPDATE_GOLDENS: ${{ inputs.update-goldens }}
+      run: |
+        mkdir -p "$PUB_CACHE_DIR"
+        set -- flutter test
+        [ -n "$TAGS" ] && set -- "$@" --tags "$TAGS"
+        [ "$UPDATE_GOLDENS" = true ] && set -- "$@" --update-goldens
+        # Word-split on purpose: ARGS is a list like "test/foo_test.dart --name bar".
+        # shellcheck disable=SC2086
+        set -- "$@" $ARGS
+
+        docker run --rm --platform linux/amd64 \
+          --user "$(id -u):$(id -g)" \
+          -v "$ROOT:/work" -w "$WORKDIR" \
+          -v "$PUB_CACHE_DIR:/opt/pub-cache" \
+          "$IMAGE" "$@"
+
+    - name: Upload golden failures
+      if: failure() && inputs.upload-failures == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: golden-failures
+        path: ${{ inputs.working-directory }}/**/failures/**
+        if-no-files-found: ignore
