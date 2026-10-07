@@ -115,7 +115,7 @@ jobs:
       - uses: albert221/golden-env@v1
 ```
 
-The action reads `golden-env.lock`, caches pub packages, runs your tagged goldens and, when they fail, uploads the `failures/` images as the `golden-failures` artifact.
+The action reads `golden-env.lock`, caches pub packages, runs your tagged goldens and, when they fail, uploads the `failures/` images as an artifact named after the job, so matrix jobs don't collide.
 
 | Input | Default | |
 |---|---|---|
@@ -126,6 +126,7 @@ The action reads `golden-env.lock`, caches pub packages, runs your tagged golden
 | `args` | | Extra `flutter test` arguments, e.g. a test path |
 | `update-goldens` | `false` | Regenerate instead of comparing |
 | `upload-failures` | `true` | Upload failure images when tests fail |
+| `artifact-name` | unique per job | Name of the failure artifact, e.g. `golden-failures-${{ matrix.package }}` |
 
 To regenerate goldens on CI, for example from a manually triggered workflow, set `update-goldens: true` and commit the result in a later step.
 

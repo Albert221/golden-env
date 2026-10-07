@@ -27,6 +27,9 @@ inputs:
   upload-failures:
     description: Upload golden failure images as an artifact when tests fail.
     default: 'true'
+  artifact-name:
+    description: Name of the failure artifact. Defaults to one unique per job, so matrix jobs never collide.
+    default: ''
 
 outputs:
   image:
@@ -42,6 +45,8 @@ runs:
       env:
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         IMAGE: ${{ inputs.image }}
+        # Artifact names must be unique within a run, and matrix jobs share their job id.
+        ARTIFACT_NAME: ${{ inputs.artifact-name || format('golden-failures-{0}-{1}', github.job, job.check_run_id) }}
       run: |
         # Bit-exactness needs an x86-64 CPU running the amd64 image natively. An ARM
         # runner would emulate it with QEMU and take different SIMD paths.
@@ -82,7 +87,9 @@ runs:
           echo "root=$root"
           echo "workdir=/work${package#"$root"}"
           echo "pub-cache=$RUNNER_TEMP/golden-env-pub"
+          echo "artifact-name=$ARTIFACT_NAME"
         } >> "$GITHUB_OUTPUT"
+        echo "Failure artifact name: $ARTIFACT_NAME"
 
         # AVX-512 is the one CPU difference that can change Skia's code path relative
         # to a Mac under Rosetta, which exposes AVX2 only. Logged for diagnosis.
@@ -135,6 +142,6 @@ runs:
       if: failure() && inputs.upload-failures == 'true'
       uses: actions/upload-artifact@v7
       with:
-        name: golden-failures
+        name: ${{ steps.resolve.outputs.artifact-name }}
         path: ${{ inputs.working-directory }}/**/failures/**
         if-no-files-found: ignore
