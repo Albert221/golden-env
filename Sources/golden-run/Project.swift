@@ -13,6 +13,8 @@ struct Project {
     /// The pub workspace root (`workspace:` in its pubspec) when the package belongs to one.
     /// `pub get` writes the workspace's package_config.json there, not in the package.
     let workspace: URL?
+    /// Shared at /opt/pub-cache.
+    var pubCache = Paths.hostPubCache
 
     var guestPackageDirectory: String { guestPath(of: package) }
 
@@ -25,7 +27,7 @@ struct Project {
     }
 
     var shares: [(host: URL, guest: String)] {
-        [(root, Self.guestRoot), (Paths.pubCache, "/opt/pub-cache")]
+        [(root, Self.guestRoot), (pubCache, "/opt/pub-cache")]
             + dartToolDirectories.map { (Self.dartToolCache(for: $0), "\(guestPath(of: $0))/.dart_tool") }
     }
 
@@ -50,7 +52,7 @@ struct Project {
 
     /// Host directories every share needs before the VM can mount them.
     func prepareShares() throws {
-        var directories = [Paths.pubCache]
+        var directories = [pubCache]
         for directory in dartToolDirectories {
             directories += [Self.dartToolCache(for: directory), directory.appendingPathComponent(".dart_tool")]
         }
