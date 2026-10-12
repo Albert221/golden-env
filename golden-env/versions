@@ -1,6 +1,7 @@
 # Flutter versions published as ghcr.io/albert221/golden-env:<version>.
 # <version> <framework commit>; the commit is checked against the cloned tag.
 # Oldest first: the Makefile builds the last line by default.
+3.38.10 c6f67dede3d4aa1aa7a69dd56a3494a5cde6cc80
 3.41.9 00b0c91f06209d9e4a41f71b7a512d6eb3b9c694
 3.44.9 6b182d2c7585eba26d4edce0f97630effd256c33
 3.47.0 4cf24164269a5ebf0c16a028a00727d0e77bbb05
