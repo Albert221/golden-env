@@ -143,8 +143,14 @@ struct VMOptions: ParsableArguments {
     @Option(help: "Memory for the VM in MiB.")
     var memory: UInt64 = 4096
 
+    @Option(help: "Pub cache to share with the VM; defaults to $PUB_CACHE or ~/.pub-cache.", completion: .directory)
+    var pubCache: String?
+
     func runInProject(command: [String]) async throws {
-        let project = try Project.locate(from: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
+        var project = try Project.locate(from: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
+        if let pubCache {
+            project.pubCache = URL(fileURLWithPath: (pubCache as NSString).expandingTildeInPath)
+        }
         try project.prepareShares()
         let runner = Runner(
             imageReference: try image ?? project.lockedImage(),

@@ -29,5 +29,16 @@ enum Paths {
     static let initfs = store.appendingPathComponent(
         "initfs-\(Pins.vminitReference.split(separator: ":").last!).ext4"
     )
-    static let pubCache = root.appendingPathComponent("pub-cache")
+    /// Used only when the host has no pub cache of its own.
+    static let privatePubCache = root.appendingPathComponent("pub-cache")
+
+    /// The host's pub cache, shared into the VM so dependencies the developer already
+    /// fetched (including git dependencies over their SSH keys) resolve offline there.
+    static var hostPubCache: URL {
+        if let custom = ProcessInfo.processInfo.environment["PUB_CACHE"], !custom.isEmpty {
+            return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
+        }
+        let standard = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pub-cache")
+        return FileManager.default.fileExists(atPath: standard.path) ? standard : privatePubCache
+    }
 }

@@ -102,6 +102,8 @@ The first run downloads about 800 MB: a Linux kernel bundle (290 MB, once) and t
 
 `golden-run` shares the whole git repository with the VM, so path dependencies elsewhere in a monorepo resolve, and runs as your user, so goldens it writes are yours. Your package's `.dart_tool` is left alone: the container keeps its own copy, so your IDE never sees paths from inside the image.
 
+It also shares your pub cache (`$PUB_CACHE`, or `~/.pub-cache`; override with `--pub-cache`) and resolves dependencies offline from it first. Anything your own `flutter pub get` already fetched resolves in the VM without network or credentials, including private git dependencies over SSH.
+
 ## Use it on CI
 
 ### GitHub Actions
