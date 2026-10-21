@@ -185,6 +185,8 @@ Run from the repository root and add `-w /work/<package>` for a package in a sub
 
 Images are published as `ghcr.io/albert221/golden-env:<flutter version>` for every version in [`golden-env/versions`](golden-env/versions). Each one is Debian trixie pinned by digest, the Flutter SDK cloned at the release commit and verified against it, the Inter font and nothing else, font hinting off, UTC and `C.UTF-8`.
 
+A published tag stays where it is: the image workflow builds only versions that aren't on GHCR yet. To rebuild one, for example after changing the Dockerfile, run the workflow by hand with that version.
+
 For another version, add a line to `golden-env/versions` with the version and its framework commit, then build it:
 
 ```bash
