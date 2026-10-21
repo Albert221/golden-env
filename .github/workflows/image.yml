@@ -1,12 +1,20 @@
 name: image
 
-# Builds golden-env for every Flutter version in golden-env/versions and pushes it
-# to ghcr.io/<owner>/golden-env:<version>. Native x86-64, no emulation.
+# Builds golden-env for the Flutter versions in golden-env/versions that aren't on
+# ghcr.io/<owner>/golden-env yet. Native x86-64, no emulation.
+#
+# A published tag is only rebuilt by hand: apt installs whatever Debian ships that
+# day, so a rebuild moves the tag to a new digest.
 on:
   push:
     branches: [main]
     paths: [golden-env/**, .github/workflows/image.yml]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to rebuild. Empty builds only unpublished versions.
+        required: false
+        default: ''
 
 jobs:
   versions:
@@ -16,12 +24,40 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: read
+        env:
+          REQUESTED: ${{ inputs.version }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          matrix=$(awk '!/^#/ && NF { printf "%s{\"version\":\"%s\",\"commit\":\"%s\"}", sep, $1, $2; sep="," }' golden-env/versions)
-          echo "matrix=[$matrix]" >> "$GITHUB_OUTPUT"
+          repository="${OWNER,,}/golden-env"
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:$repository:pull" | jq -r .token)
+          matrix=()
+          while read -r version commit; do
+            if [ -n "$REQUESTED" ]; then
+              [ "$REQUESTED" = "$version" ] || continue
+            else
+              status=$(curl -sS -o /dev/null -w '%{http_code}' --head \
+                -H "Authorization: Bearer $token" \
+                -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+                "https://ghcr.io/v2/$repository/manifests/$version")
+              case $status in
+                200) echo "$version is published, skipping"; continue ;;
+                404) ;;
+                # Anything else could be a published tag: rebuilding it would move it.
+                *) echo "::error::ghcr.io answered $status for $version"; exit 1 ;;
+              esac
+            fi
+            echo "$version will be built"
+            matrix+=("$(jq -nc --arg version "$version" --arg commit "$commit" '{$version, $commit}')")
+          done < <(awk '!/^#/ && NF' golden-env/versions)
+          if [ -n "$REQUESTED" ] && [ ${#matrix[@]} -eq 0 ]; then
+            echo "::error::$REQUESTED is not in golden-env/versions"
+            exit 1
+          fi
+          echo "matrix=[$(IFS=,; echo "${matrix[*]}")]" >> "$GITHUB_OUTPUT"
 
   build:
     needs: versions
+    if: needs.versions.outputs.matrix != '[]'
     runs-on: ubuntu-24.04
     strategy:
       # One version failing to build must not cancel the others.
