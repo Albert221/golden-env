@@ -65,6 +65,40 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
 
 **4. Regenerate every golden in the image once** (`golden-run --update-goldens`) and commit them. Goldens rendered anywhere else will not match.
 
+### Skip goldens outside golden-env
+
+A plain `flutter test` on a Mac fails every golden, and `flutter test --update-goldens` overwrites them with goldens that CI will reject. The image sets `GOLDEN_ENV=1`, both under `golden-run` and on CI, so a small helper can skip goldens everywhere else:
+
+```dart
+// test/golden_test.dart
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+/// Set by the golden-env image: goldens only match when rendered in it.
+final inGoldenEnv = Platform.environment['GOLDEN_ENV'] == '1';
+
+void goldenTest(String description, WidgetTesterCallback callback) {
+  // A group because, unlike testWidgets, it takes a skip reason.
+  group(
+    description,
+    skip: inGoldenEnv ? null : 'Goldens only match in golden-env, run them with golden-run',
+    () => testWidgets('matches golden', callback, tags: ['golden']),
+  );
+}
+```
+
+Use it in place of `testWidgets` for every golden test:
+
+```dart
+goldenTest('profile card', (tester) async {
+  await tester.pumpWidget(const ProfileCard());
+  await expectLater(find.byType(ProfileCard), matchesGoldenFile('goldens/profile_card.png'));
+});
+```
+
+Keep the tag: `golden-run` and the action select tests by it. Plain `flutter test` then reports goldens as skipped, with the reason, instead of failing or rewriting them. The rest of the suite still runs natively, so your existing test job needs no `--exclude-tags golden`.
+
 ## Use it locally
 
 Install the latest `golden-run`:
