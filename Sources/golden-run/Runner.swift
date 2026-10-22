@@ -6,14 +6,17 @@ import ContainerizationOS
 import Foundation
 import SystemPackage
 
-/// Boots a linux/amd64 image in a throwaway micro VM under Rosetta.
+/// Boots a linux/amd64 image in a throwaway micro VM under Rosetta or QEMU.
 ///
 /// ContainerManager is not used for the container itself: it unpacks and reads the
 /// image config for `Platform.current` (arm64), which an amd64-only image lacks.
 struct Runner {
     static let platform = Platform(arch: "amd64", os: "linux")
+    /// Where the QEMU share appears in the container; only the VM-side path is used.
+    private static let guestQemuDirectory = "/run/golden-run/qemu"
 
     var imageReference: String
+    var emulator = Emulator.rosetta
     /// Replaces the image's CMD; its ENTRYPOINT still runs first, as with `docker run`.
     var command: [String] = []
     var workingDirectory: String?
@@ -30,6 +33,7 @@ struct Runner {
         let kernel = try await store.ensureKernel()
         let initfs = try await store.ensureInitfs()
         let image = try await Self.image(imageReference, in: store.images)
+        let qemu = emulator == .qemu ? try await store.ensureQemu() : nil
 
         let id = "golden-\(UUID().uuidString.prefix(8).lowercased())"
         let containerDir = Paths.store.appendingPathComponent("containers").appendingPathComponent(id)
@@ -47,7 +51,7 @@ struct Runner {
 
         let imageConfig = try await image.config(for: Self.platform).config
         let terminal = try? Terminal.current
-        let vmm = VZVirtualMachineManager(kernel: kernel, initialFilesystem: initfs, rosetta: true)
+        let vmm = VZVirtualMachineManager(kernel: kernel, initialFilesystem: initfs, rosetta: emulator == .rosetta)
 
         let container = try LinuxContainer(
             id,
@@ -83,6 +87,9 @@ struct Runner {
             for share in shares {
                 config.mounts.append(.share(source: share.host.path, destination: share.guest))
             }
+            if let qemu {
+                config.mounts.append(.share(source: qemu.path, destination: Self.guestQemuDirectory, options: ["ro"]))
+            }
             config.bootLog = .file(path: containerDir.appendingPathComponent("boot.log"))
         }
 
@@ -92,6 +99,9 @@ struct Runner {
         defer { terminal?.tryReset() }
 
         try await container.create()
+        if let qemu {
+            try await Self.registerQemu(in: qemu, with: container)
+        }
         try await container.start()
         if let terminal {
             try? await container.resize(to: try terminal.size)
@@ -101,8 +111,12 @@ struct Runner {
         return status.exitCode
     }
 
-    /// Looks the image up locally and pulls only its amd64 manifest when missing.
-    static func image(_ reference: String, in images: ImageStore) async throws -> Containerization.Image {
+    /// Looks the image up locally and pulls only the platform's manifest when missing.
+    static func image(
+        _ reference: String,
+        platform: Platform = platform,
+        in images: ImageStore
+    ) async throws -> Containerization.Image {
         // Docker-style shorthand: `debian:bookworm-slim` means docker.io/library/debian.
         var ref = try Reference.parse(reference)
         if ref.domain == nil {
@@ -115,8 +129,30 @@ struct Runner {
         do {
             return try await images.get(reference: normalized)
         } catch let error as ContainerizationError where error.code == .notFound {
-            log("Pulling \(normalized) (linux/amd64)...")
+            log("Pulling \(normalized) (\(platform.description))...")
             return try await images.pull(reference: normalized, platform: platform)
+        }
+    }
+
+    /// Makes the shared qemu-x86_64 the kernel's handler for x86-64 binaries, as
+    /// Containerization does for Rosetta. Each share is visible to vminitd at
+    /// /run/virtiofs/<tag> once the container is created, before anything runs in it.
+    private static func registerQemu(in directory: URL, with container: LinuxContainer) async throws {
+        let tag = try Containerization.Mount.share(source: directory.path, destination: guestQemuDirectory).tagHash
+        try await container.withVirtualMachineInstance { vm in
+            guard let agent = try await vm.dialAgent() as? Vminitd else {
+                throw GoldenRunError("the VM's agent cannot register an emulator")
+            }
+            do {
+                try await agent.setupEmulator(
+                    binaryPath: "/run/virtiofs/\(tag)/qemu-x86_64",
+                    configuration: Emulator.qemuBinfmtEntry
+                )
+            } catch {
+                try? await agent.close()
+                throw error
+            }
+            try await agent.close()
         }
     }
 

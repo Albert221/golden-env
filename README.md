@@ -10,7 +10,7 @@ Golden tests break when the machine that renders them changes: macOS and Linux r
 golden-env removes the difference instead. One `linux/amd64` image, pinned by digest, is the only thing that ever renders a golden:
 
 - **On CI**, the GitHub Action runs it with Docker on an x86-64 runner.
-- **On your Mac**, `golden-run` boots the same image in a throwaway micro VM through Apple's [Containerization](https://github.com/apple/containerization), with Rosetta translating it. No Docker, no Flutter on the host.
+- **On your Mac**, `golden-run` boots the same image in a throwaway micro VM through Apple's [Containerization](https://github.com/apple/containerization), with Rosetta, or QEMU where Rosetta is unavailable, translating it. No Docker, no Flutter on the host.
 
 Same `flutter_tester`, same FreeType, same fonts, same Skia code path: the same PNG bytes, with zero tolerance.
 
@@ -18,7 +18,7 @@ Same `flutter_tester`, same FreeType, same fonts, same Skia code path: the same 
 
 | Where | What |
 |---|---|
-| Mac | Apple Silicon, macOS 26 or newer, Rosetta (`softwareupdate --install-rosetta --agree-to-license`) |
+| Mac | Apple Silicon, macOS 26 or newer; Rosetta (`softwareupdate --install-rosetta --agree-to-license`) recommended |
 | CI | An x86-64 Linux runner with Docker, such as GitHub's `ubuntu-24.04` |
 | Your project | A Flutter version that has an image (see [Images](#images)) |
 
@@ -129,12 +129,15 @@ Then, from anywhere inside your Flutter package:
 | `golden-run --all-tests` | Runs every test, not only tagged ones |
 | `golden-run --offline` | No network in the VM, once dependencies are resolved |
 | `golden-run shell` | A shell in the image, in your package directory |
+| `golden-run --emulator qemu` | Uses QEMU instead of Rosetta |
 | `golden-run doctor` | Checks macOS, Rosetta and what is downloaded |
 | `golden-run pull` | Downloads the kernel and VM init ahead of time |
 
 The first run downloads about 800 MB: a Linux kernel bundle (290 MB, once) and the image (about 500 MB, once per Flutter version). It then unpacks the image, which takes a few minutes. After that a run starts in under a second.
 
 `golden-run` shares the whole git repository with the VM, so path dependencies elsewhere in a monorepo resolve, and runs as your user, so goldens it writes are yours. Your package's `.dart_tool` is left alone: the container keeps its own copy, so your IDE never sees paths from inside the image.
+
+Rosetta translates the image's x86-64 code by default. Without Rosetta, golden-run falls back to QEMU, downloaded once (29 MB). It renders the same bytes, roughly three times slower. Apple only promises Rosetta through macOS 27, so QEMU is what keeps golden-run working after that.
 
 It also shares your pub cache (`$PUB_CACHE`, or `~/.pub-cache`; override with `--pub-cache`) and resolves dependencies offline from it first. Anything your own `flutter pub get` already fetched resolves in the VM without network or credentials, including private git dependencies over SSH.
 
@@ -201,7 +204,7 @@ Bumping Flutter means a new image digest in `golden-env.lock` and a commit that 
 
 [`canary/`](canary) holds five goldens that exercise text, gradients, blur, clipping, strokes and image scaling. They are rendered on a Mac with `golden-run` and checked by CI on every push, so a mismatch shows up here before it shows up in your project.
 
-If your goldens differ between the two, compare `golden-run doctor` with the action's CPU log group. The image fixes everything except the CPU's vector instructions: Rosetta exposes AVX2 but not AVX-512, so a CI machine with AVX-512 can take a different Skia code path.
+If your goldens differ between the two, compare `golden-run doctor` with the action's CPU log group. The image fixes everything except the CPU's vector instructions: Rosetta and QEMU expose AVX2 but not AVX-512, so a CI machine with AVX-512 can take a different Skia code path.
 
 ## License
 
