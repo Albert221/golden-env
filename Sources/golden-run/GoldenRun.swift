@@ -137,8 +137,8 @@ struct VMOptions: ParsableArguments {
     @Flag(help: "Disable networking in the VM (pub get must already be satisfied).")
     var offline = false
 
-    @Option(help: "Number of CPUs for the VM.")
-    var cpus = 4
+    @Option(help: "Number of CPUs for the VM; defaults to the Mac's cores minus two.")
+    var cpus = Runner.defaultCPUs
 
     @Option(help: "Memory for the VM in MiB.")
     var memory: UInt64 = 4096
