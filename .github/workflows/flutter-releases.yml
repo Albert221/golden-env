@@ -1,0 +1,76 @@
+name: flutter releases
+
+# Opens a PR adding every stable Flutter release newer than the last line of
+# golden-env/versions. Merging it publishes their images.
+on:
+  schedule:
+    - cron: '0 8 * * *'
+      timezone: Europe/Warsaw
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      BRANCH: flutter-releases
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Add new stable releases
+        run: |
+          latest=$(awk '!/^#/ && NF { version = $1 } END { print version }' golden-env/versions)
+          added=()
+          while read -r version commit; do
+            # Only releases after the last line, which the Makefile builds by default.
+            [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)" = "$version" ] || continue
+            [ "$version" != "$latest" ] || continue
+            # The manifest and the tag must agree, or the image build would refuse it.
+            tag=$(git ls-remote https://github.com/flutter/flutter.git "refs/tags/$version" "refs/tags/$version^{}" | sort -k 2 | tail -n 1 | cut -f 1)
+            if [ "$tag" != "$commit" ]; then
+              echo "::error::Flutter $version: the release manifest says $commit, the tag says ${tag:-nothing}"
+              exit 1
+            fi
+            echo "$version $commit" >> golden-env/versions
+            added+=("$version")
+          done < <(curl -fsS https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json |
+            jq -r '.releases[] | select(.channel == "stable") | "\(.version) \(.hash)"' |
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+ [0-9a-f]{40}$' | sort -u -V)
+
+          if [ ${#added[@]} -eq 0 ]; then
+            echo "No stable release after $latest"
+            exit 0
+          fi
+          if [ ${#added[@]} -eq 1 ]; then
+            title="Publish a golden-env image for Flutter ${added[0]}"
+          else
+            title="Publish golden-env images for Flutter $(IFS=,; echo "${added[*]}" | sed 's/,/, /g')"
+          fi
+          echo "$title"
+
+          # An open PR that already adds the same lines stays untouched, so it isn't
+          # force-pushed and re-notified every day until it is merged.
+          open=$(gh pr list --head "$BRANCH" --state open --json number --jq length)
+          if [ "$open" != 0 ] && git fetch --quiet origin "$BRANCH" \
+            && git diff --quiet FETCH_HEAD -- golden-env/versions; then
+            echo "The open PR is up to date"
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --quiet -C "$BRANCH"
+          git commit --quiet -am "$title"
+          git push --quiet --force origin "$BRANCH"
+
+          body="Stable Flutter releases after $latest, taken from Flutter's release manifest. Each commit matches its tag in flutter/flutter. Merging builds and publishes their images.
+
+          Opened by the \`flutter releases\` workflow."
+          if [ "$open" != 0 ]; then
+            gh pr edit "$BRANCH" --title "$title" --body "$body"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$title" --body "$body"
+          fi

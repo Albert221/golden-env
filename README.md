@@ -187,6 +187,8 @@ Images are published as `ghcr.io/albert221/golden-env:<flutter version>` for eve
 
 A published tag stays where it is: the image workflow builds only versions that aren't on GHCR yet. To rebuild one, for example after changing the Dockerfile, run the workflow by hand with that version.
 
+New stable releases are added by a workflow that checks Flutter's release manifest every morning and opens a PR; merging it publishes the images.
+
 For another version, add a line to `golden-env/versions` with the version and its framework commit, then build it:
 
 ```bash
