@@ -1,4 +1,5 @@
 import Containerization
+import ContainerizationOCI
 import ContainerizationError
 import CryptoKit
 import Foundation
@@ -53,8 +54,8 @@ struct Store {
 
     /// Pulls the vminit image and writes it out as an ext4 block file once per version.
     @discardableResult
-    func ensureInitfs() async throws -> Mount {
-        let mount = Mount.block(format: "ext4", source: Paths.initfs.path, destination: "/", options: ["ro"])
+    func ensureInitfs() async throws -> Containerization.Mount {
+        let mount = Containerization.Mount.block(format: "ext4", source: Paths.initfs.path, destination: "/", options: ["ro"])
         if hasInitfs {
             return mount
         }
@@ -63,6 +64,36 @@ struct Store {
         _ = try await initImage.initBlock(at: Paths.initfs, for: .linuxArm)
         log("Initfs ready: \(Paths.initfs.lastPathComponent)")
         return mount
+    }
+
+    // MARK: QEMU
+
+    var hasQemu: Bool { FileManager.default.fileExists(atPath: Paths.qemu.appendingPathComponent("qemu-x86_64").path) }
+
+    /// Extracts `qemu-x86_64` from the pinned binfmt image once; returns the directory holding it.
+    @discardableResult
+    func ensureQemu() async throws -> URL {
+        if !hasQemu {
+            try await fetchQemu()
+        }
+        return Paths.qemu
+    }
+
+    private func fetchQemu() async throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("golden-run-qemu-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        log("Pulling QEMU (29 MB once)...")
+        let image = try await Runner.image(Pins.qemuImageReference, platform: Platform(arch: "arm64", os: "linux"), in: images)
+        let layer = try await image.getContent(digest: Pins.qemuLayerDigest)
+        try run("/usr/bin/tar", ["-xzf", layer.path.path, "-C", work.path, Pins.qemuPathInLayer])
+        let extracted = work.appendingPathComponent(Pins.qemuPathInLayer)
+        try verify(extracted, sha256: Pins.qemuSHA256)
+        try FileManager.default.createDirectory(at: Paths.qemu, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: extracted, to: Paths.qemu.appendingPathComponent("qemu-x86_64"))
+        log("QEMU ready: \(Paths.qemu.lastPathComponent)")
     }
 }
 
