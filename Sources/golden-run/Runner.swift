@@ -22,7 +22,10 @@ struct Runner {
     /// Defaults to the host user, so files written into shares stay the developer's.
     var user = ContainerizationOCI.User(uid: getuid(), gid: getgid())
     var networking = true
-    var cpus = 4
+    /// All but two of the host's cores: `flutter test` runs as many test files at once as
+    /// the VM has CPUs minus two, so a fixed small VM leaves most of the Mac idle.
+    static let defaultCPUs = max(1, ProcessInfo.processInfo.activeProcessorCount - 2)
+    var cpus = defaultCPUs
     var memoryInBytes: UInt64 = 4.gib()
 
     func run() async throws -> Int32 {
