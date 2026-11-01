@@ -42,14 +42,15 @@ extension GoldenRun {
 
     struct Doctor: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Check macOS, Rosetta, kernel, vminit and image state."
+            abstract: "Check macOS, the emulators, kernel and vminit."
         )
 
         func run() async throws {
             let store = try Store()
             let os = ProcessInfo.processInfo.operatingSystemVersion
             print("macOS        \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")
-            print("rosetta      \(Rosetta.isInstalled ? "installed" : "MISSING (softwareupdate --install-rosetta --agree-to-license)")")
+            print("rosetta      \(Emulator.isRosettaInstalled ? "installed (used by default)" : "not installed, QEMU is used (faster: softwareupdate --install-rosetta --agree-to-license)")")
+            print("qemu         \(store.hasQemu ? Paths.qemu.lastPathComponent : "not fetched")")
             print("state dir    \(Paths.root.path)")
             print("kernel       \(store.hasKernel ? Paths.kernel.lastPathComponent : "not fetched")")
             print("vminit       \(Pins.vminitReference) (\(store.hasInitfs ? "ready" : "not fetched"))")
@@ -58,13 +59,19 @@ extension GoldenRun {
 
     struct Pull: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Fetch the kernel, vminit and the image without running anything."
+            abstract: "Fetch the kernel, vminit and, without Rosetta, QEMU, without running anything."
         )
+
+        @Flag(help: "Fetch QEMU even when Rosetta is installed.")
+        var qemu = false
 
         func run() async throws {
             let store = try Store()
             try await store.ensureKernel()
             try await store.ensureInitfs()
+            if qemu || !Emulator.isRosettaInstalled {
+                try await store.ensureQemu()
+            }
         }
     }
 
@@ -99,6 +106,9 @@ extension GoldenRun {
         @Flag(help: "Disable networking in the VM.")
         var offline = false
 
+        @Option(help: "x86-64 emulation: rosetta or qemu.")
+        var emulator: Emulator?
+
         @Argument(parsing: .captureForPassthrough)
         var command: [String] = []
 
@@ -107,6 +117,7 @@ extension GoldenRun {
             let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             let runner = Runner(
                 imageReference: image,
+                emulator: Emulator.resolve(emulator),
                 command: command,
                 workingDirectory: Project.guestRoot,
                 shares: [(cwd, Project.guestRoot)],
@@ -146,6 +157,9 @@ struct VMOptions: ParsableArguments {
     @Option(help: "Pub cache to share with the VM; defaults to $PUB_CACHE or ~/.pub-cache.", completion: .directory)
     var pubCache: String?
 
+    @Option(help: "x86-64 emulation: rosetta or qemu (slower). Defaults to Rosetta when installed.")
+    var emulator: Emulator?
+
     func runInProject(command: [String]) async throws {
         var project = try Project.locate(from: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
         if let pubCache {
@@ -154,6 +168,7 @@ struct VMOptions: ParsableArguments {
         try project.prepareShares()
         let runner = Runner(
             imageReference: try image ?? project.lockedImage(),
+            emulator: Emulator.resolve(emulator),
             command: command,
             workingDirectory: project.guestPackageDirectory,
             shares: project.shares,
