@@ -47,6 +47,7 @@ extension GoldenRun {
 
         func run() async throws {
             let store = try Store()
+            store.prune()
             let os = ProcessInfo.processInfo.operatingSystemVersion
             print("macOS        \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")
             print("rosetta      \(Rosetta.isInstalled ? "installed" : "MISSING (softwareupdate --install-rosetta --agree-to-license)")")

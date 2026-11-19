@@ -27,14 +27,16 @@ struct Runner {
 
     func run() async throws -> Int32 {
         let store = try Store()
+        store.prune()
         let kernel = try await store.ensureKernel()
         let initfs = try await store.ensureInitfs()
         let image = try await Self.image(imageReference, in: store.images)
 
         let id = "golden-\(UUID().uuidString.prefix(8).lowercased())"
-        let containerDir = Paths.store.appendingPathComponent("containers").appendingPathComponent(id)
-        try FileManager.default.createDirectory(at: containerDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: containerDir) }
+        let terminal = try? Terminal.current
+        let runDirectory = try RunDirectory(id: id) { terminal?.tryReset() }
+        defer { runDirectory.remove() }
+        let containerDir = runDirectory.url
 
         // Shared read-only lower layer per image digest, fresh writable upper layer per run:
         // nothing a run writes outside the shares survives into the next one.
@@ -46,7 +48,6 @@ struct Runner {
         let interface = try network?.createInterface(id)
 
         let imageConfig = try await image.config(for: Self.platform).config
-        let terminal = try? Terminal.current
         let vmm = VZVirtualMachineManager(kernel: kernel, initialFilesystem: initfs, rosetta: true)
 
         let container = try LinuxContainer(
