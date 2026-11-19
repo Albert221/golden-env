@@ -69,7 +69,8 @@ struct Store {
 
     /// Deletes what killed runs and older versions of golden-run left behind: container
     /// directories no run holds, half-unpacked rootfs files, and kernels and initfs files
-    /// that are no longer pinned. Images, their rootfs and the caches stay.
+    /// that are no longer pinned. Also `.dart_tool` copies of packages that haven't run
+    /// in a month, which a run rebuilds in seconds. Images and their rootfs stay.
     func prune() {
         var stale = contents(of: RunDirectory.parent).filter {
             $0.lastPathComponent.hasPrefix("golden-") && RunDirectory.isAbandoned($0)
@@ -85,6 +86,8 @@ struct Store {
         stale += contents(of: Paths.store.appendingPathComponent("rootfs")).filter {
             $0.pathExtension == "partial" && age(of: $0) > 60 * 60
         }
+        // Project.prepareShares marks a package's copy as used on every run.
+        stale += contents(of: Paths.dartToolCaches).filter { age(of: $0) > 30 * 24 * 60 * 60 }
 
         var removed = 0
         var freed: Int64 = 0
@@ -97,7 +100,7 @@ struct Store {
         }
         if removed > 0 {
             let size = ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)
-            log("Removed \(removed) leftover\(removed == 1 ? "" : "s") of earlier runs and versions (\(size))")
+            log("Removed \(removed) stale item\(removed == 1 ? "" : "s") from \(Paths.root.path) (\(size))")
         }
     }
 }

@@ -31,6 +31,8 @@ enum Paths {
     )
     /// Used only when the host has no pub cache of its own.
     static let privatePubCache = root.appendingPathComponent("pub-cache")
+    /// The container's `.dart_tool` for each package directory, keyed by its path.
+    static let dartToolCaches = root.appendingPathComponent("dart-tool")
 
     /// The host's pub cache, shared into the VM so dependencies the developer already
     /// fetched (including git dependencies over their SSH keys) resolve offline there.

@@ -38,7 +38,7 @@ struct Project {
 
     private static func dartToolCache(for directory: URL) -> URL {
         let digest = SHA256.hash(data: Data(directory.path.utf8)).map { String(format: "%02x", $0) }.joined()
-        return Paths.root.appendingPathComponent("dart-tool").appendingPathComponent(String(digest.prefix(16)))
+        return Paths.dartToolCaches.appendingPathComponent(String(digest.prefix(16)))
     }
 
     static func locate(from start: URL) throws -> Project {
@@ -58,6 +58,10 @@ struct Project {
         }
         for directory in directories {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        // Marks them as used, so Store.prune keeps them.
+        for directory in dartToolDirectories {
+            try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: Self.dartToolCache(for: directory).path)
         }
     }
 

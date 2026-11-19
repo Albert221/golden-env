@@ -134,7 +134,7 @@ Then, from anywhere inside your Flutter package:
 
 The first run downloads about 800 MB: a Linux kernel bundle (290 MB, once) and the image (about 500 MB, once per Flutter version). It then unpacks the image, which takes a few minutes. After that a run starts in under a second.
 
-Each run gets a fresh writable layer, deleted when the run ends or is interrupted. Whatever a killed run or an older version of `golden-run` left behind is removed by the next run or `golden-run doctor`.
+Each run gets a fresh writable layer, deleted when the run ends or is interrupted. Whatever a killed run or an older version of `golden-run` left behind is removed by the next run or `golden-run doctor`, and so is the `.dart_tool` copy of a package that hasn't run in a month.
 
 `golden-run` shares the whole git repository with the VM, so path dependencies elsewhere in a monorepo resolve, and runs as your user, so goldens it writes are yours. Your package's `.dart_tool` is left alone: the container keeps its own copy, so your IDE never sees paths from inside the image.
 
