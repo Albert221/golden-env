@@ -64,6 +64,55 @@ struct Store {
         log("Initfs ready: \(Paths.initfs.lastPathComponent)")
         return mount
     }
+
+    // MARK: Cleanup
+
+    /// Deletes what killed runs and older versions of golden-run left behind: container
+    /// directories no run holds, half-unpacked rootfs files, and kernels and initfs files
+    /// that are no longer pinned. Images, their rootfs and the caches stay.
+    func prune() {
+        var stale = contents(of: RunDirectory.parent).filter {
+            $0.lastPathComponent.hasPrefix("golden-") && RunDirectory.isAbandoned($0)
+        }
+        stale += contents(of: Paths.root).filter {
+            $0.lastPathComponent.hasPrefix("vmlinux-") && $0.lastPathComponent != Paths.kernel.lastPathComponent
+        }
+        stale += contents(of: Paths.store).filter {
+            $0.lastPathComponent.hasPrefix("initfs-") && $0.pathExtension == "ext4"
+                && $0.lastPathComponent != Paths.initfs.lastPathComponent
+        }
+        // An unpack writes all the time, so one untouched for an hour was interrupted.
+        stale += contents(of: Paths.store.appendingPathComponent("rootfs")).filter {
+            $0.pathExtension == "partial" && age(of: $0) > 60 * 60
+        }
+
+        var removed = 0
+        var freed: Int64 = 0
+        for url in stale {
+            let size = allocatedSize(of: url)
+            if (try? FileManager.default.removeItem(at: url)) != nil {
+                removed += 1
+                freed += size
+            }
+        }
+        if removed > 0 {
+            let size = ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)
+            log("Removed \(removed) leftover\(removed == 1 ? "" : "s") of earlier runs and versions (\(size))")
+        }
+    }
+}
+
+private func contents(of directory: URL) -> [URL] {
+    (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+}
+
+/// Bytes on disk, not the apparent size: a writable layer is a 4 GiB sparse file.
+private func allocatedSize(of url: URL) -> Int64 {
+    let key = URLResourceKey.totalFileAllocatedSizeKey
+    let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [key])?.compactMap { $0 as? URL } ?? []
+    return ([url] + files).reduce(0) { total, file in
+        total + Int64((try? file.resourceValues(forKeys: [key]))?.totalFileAllocatedSize ?? 0)
+    }
 }
 
 struct GoldenRunError: Error, CustomStringConvertible {
